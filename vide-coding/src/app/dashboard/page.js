@@ -1,10 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
+import { useApiKeys } from '../../hooks/useApiKeys';
+import SupabaseStatus from '../../components/SupabaseStatus';
+import RLSErrorBanner from '../../components/RLSErrorBanner';
 
 export default function Dashboard() {
-  const [apiKeys, setApiKeys] = useState([]);
+  const { 
+    apiKeys, 
+    loading, 
+    error, 
+    createApiKey, 
+    updateApiKey, 
+    deleteApiKey, 
+    toggleKeyVisibility 
+  } = useApiKeys();
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingKey, setEditingKey] = useState(null);
   const [formData, setFormData] = useState({
@@ -15,19 +27,6 @@ export default function Dashboard() {
     limitUsage: false,
     monthlyLimit: 1000
   });
-
-  // Load API keys from localStorage on component mount
-  useEffect(() => {
-    const savedKeys = localStorage.getItem('apiKeys');
-    if (savedKeys) {
-      setApiKeys(JSON.parse(savedKeys));
-    }
-  }, []);
-
-  // Save API keys to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem('apiKeys', JSON.stringify(apiKeys));
-  }, [apiKeys]);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -51,50 +50,49 @@ export default function Dashboard() {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (editingKey) {
-      // Update existing key
-      setApiKeys(prev => prev.map(key => 
-        key.id === editingKey.id 
-          ? { ...key, ...formData, updatedAt: new Date().toISOString() }
-          : key
-      ));
-    } else {
-      // Create new key
-      const newKey = {
-        id: Date.now().toString(),
-        ...formData,
-        usage: 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      setApiKeys(prev => [...prev, newKey]);
-    }
+    try {
+      if (editingKey) {
+        // Update existing key
+        await updateApiKey(editingKey.id, formData);
+      } else {
+        // Create new key
+        await createApiKey(formData);
+      }
 
-    // Reset form and close modal
-    setFormData({ name: '', key: '', description: '', type: 'dev', limitUsage: false, monthlyLimit: 1000 });
-    setEditingKey(null);
-    setIsModalOpen(false);
+      // Reset form and close modal
+      setFormData({ name: '', key: '', description: '', type: 'dev', limitUsage: false, monthlyLimit: 1000 });
+      setEditingKey(null);
+      setIsModalOpen(false);
+    } catch (err) {
+      console.error('Error saving API key:', err);
+      alert('Error saving API key. Please try again.');
+    }
   };
 
   const handleEdit = (key) => {
     setEditingKey(key);
     setFormData({
       name: key.name,
-      key: key.key,
+      key: key.key_value,
       description: key.description,
       type: key.type || 'dev',
-      limitUsage: key.limitUsage || false,
-      monthlyLimit: key.monthlyLimit || 1000
+      limitUsage: key.limit_usage || false,
+      monthlyLimit: key.monthly_limit || 1000
     });
     setIsModalOpen(true);
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (confirm('Are you sure you want to delete this API key?')) {
-      setApiKeys(prev => prev.filter(key => key.id !== id));
+      try {
+        await deleteApiKey(id);
+      } catch (err) {
+        console.error('Error deleting API key:', err);
+        alert('Error deleting API key. Please try again.');
+      }
     }
   };
 
@@ -103,13 +101,13 @@ export default function Dashboard() {
     alert('API key copied to clipboard!');
   };
 
-  const handleView = (key) => {
-    // Toggle visibility of the key
-    setApiKeys(prev => prev.map(k => 
-      k.id === key.id 
-        ? { ...k, visible: !k.visible }
-        : k
-    ));
+  const handleView = async (key) => {
+    try {
+      await toggleKeyVisibility(key.id);
+    } catch (err) {
+      console.error('Error toggling key visibility:', err);
+      alert('Error toggling key visibility. Please try again.');
+    }
   };
 
   const generateApiKey = () => {
@@ -135,7 +133,10 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900">Overview</h1>
+          <div className="flex items-center justify-between">
+            <h1 className="text-4xl font-bold text-gray-900">Overview</h1>
+            <SupabaseStatus />
+          </div>
         </div>
 
         {/* Current Plan Card */}
@@ -194,9 +195,20 @@ export default function Dashboard() {
               The key is used to authenticate your requests to the Research API. To learn more, see the{' '}
               <a href="#" className="underline text-blue-600 hover:text-blue-700">documentation page</a>.
             </p>
+            <RLSErrorBanner error={error} />
+            {error && !error.includes('Access denied') && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-600">Error: {error}</p>
+              </div>
+            )}
           </div>
 
-          {apiKeys.length === 0 ? (
+          {loading ? (
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+              <p className="mt-2 text-sm text-gray-500">Loading API keys...</p>
+            </div>
+          ) : apiKeys.length === 0 ? (
             <div className="text-center py-12">
               <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
@@ -239,7 +251,7 @@ export default function Dashboard() {
                         {key.usage || 0}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-mono">
-                        {key.visible ? key.key : maskKey(key.key)}
+                        {key.visible ? key.key_value : maskKey(key.key_value)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex items-center gap-2">
@@ -254,7 +266,7 @@ export default function Dashboard() {
                             </svg>
                           </button>
                           <button
-                            onClick={() => handleCopy(key.key)}
+                            onClick={() => handleCopy(key.key_value)}
                             className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
                             title="Copy key"
                           >
