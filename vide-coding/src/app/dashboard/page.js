@@ -5,8 +5,11 @@ import Link from 'next/link';
 import { useApiKeys } from '../../hooks/useApiKeys';
 import SupabaseStatus from '../../components/SupabaseStatus';
 import RLSErrorBanner from '../../components/RLSErrorBanner';
+import CopyNotification from '../../components/CopyNotification';
+import { useSidebar } from '../../contexts/SidebarContext';
 
 export default function Dashboard() {
+  const { sidebarOpen, setSidebarOpen } = useSidebar();
   const { 
     apiKeys, 
     loading, 
@@ -19,6 +22,8 @@ export default function Dashboard() {
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingKey, setEditingKey] = useState(null);
+  const [showNotification, setShowNotification] = useState(false);
+  const [notificationType, setNotificationType] = useState('copy');
   const [formData, setFormData] = useState({
     name: '',
     key: '',
@@ -27,6 +32,11 @@ export default function Dashboard() {
     limitUsage: false,
     monthlyLimit: 1000
   });
+
+  const showNotificationMessage = (type) => {
+    setNotificationType(type);
+    setShowNotification(true);
+  };
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -66,6 +76,9 @@ export default function Dashboard() {
       setFormData({ name: '', key: '', description: '', type: 'dev', limitUsage: false, monthlyLimit: 1000 });
       setEditingKey(null);
       setIsModalOpen(false);
+      
+      // Show success notification
+      showNotificationMessage(editingKey ? 'edit' : 'copy');
     } catch (err) {
       console.error('Error saving API key:', err);
       alert('Error saving API key. Please try again.');
@@ -89,6 +102,7 @@ export default function Dashboard() {
     if (confirm('Are you sure you want to delete this API key?')) {
       try {
         await deleteApiKey(id);
+        showNotificationMessage('delete');
       } catch (err) {
         console.error('Error deleting API key:', err);
         alert('Error deleting API key. Please try again.');
@@ -96,9 +110,21 @@ export default function Dashboard() {
     }
   };
 
-  const handleCopy = (key) => {
-    navigator.clipboard.writeText(key);
-    alert('API key copied to clipboard!');
+  const handleCopy = async (key) => {
+    try {
+      await navigator.clipboard.writeText(key);
+      showNotificationMessage('copy');
+    } catch (err) {
+      console.error('Failed to copy API key:', err);
+      // Fallback для старых браузеров
+      const textArea = document.createElement('textarea');
+      textArea.value = key;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      showNotificationMessage('copy');
+    }
   };
 
   const handleView = async (key) => {
@@ -129,7 +155,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
@@ -472,6 +498,13 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+      
+      {/* Уведомления */}
+      <CopyNotification 
+        isVisible={showNotification} 
+        onClose={() => setShowNotification(false)}
+        type={notificationType}
+      />
     </div>
   );
 }
